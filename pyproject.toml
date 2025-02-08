@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "tuskorm"
+version = "0.1.0"
+description = "A general-purpose Object Relational Mapper (ORM) for PostgreSQL"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/yourusername/tuskorm"
+keywords = ["ORM", "PostgreSQL", "database", "asyncpg"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+asyncpg = "^0.29.0"  # Async PostgreSQL driver
+dataclasses-json = "^0.6.1"  # JSON support for models (optional)
+pydantic = "^2.5.0"  # For type validation (optional)
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.0.0"  # Unit testing framework
+pytest-asyncio = "^0.23.0"  # Async test support
+black = "^23.12.0"  # Code formatter
+ruff = "^0.1.10"  # Linter & static analysis
+isort = "^5.12.0"  # Import sorting
+mypy = "^1.8.0"  # Type checking
+
+[tool.poetry.scripts]
+tuskorm = "tuskorm.cli:main"  # CLI entry point (for migrations, etc.)
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+addopts = "--asyncio-mode=auto"
