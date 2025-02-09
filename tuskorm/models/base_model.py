@@ -3,6 +3,7 @@ import uuid
 from typing import Type, Dict, Any, List, Optional
 from pydantic import BaseModel as PydanticModel, Field, ConfigDict
 
+
 class BaseModel(PydanticModel):
     """
     Base class for ORM models in TuskORM.
@@ -17,11 +18,15 @@ class BaseModel(PydanticModel):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
 
-    model_config = ConfigDict(extra="allow", from_attributes=True)  # Allows missing fields
+    model_config = ConfigDict(
+        extra="allow", from_attributes=True
+    )  # Allows missing fields
+
     class Meta:
         """
         Meta class for defining additional table properties.
         """
+
         table_name: str = ""
 
     def __init_subclass__(cls, **kwargs):
@@ -56,12 +61,20 @@ class BaseModel(PydanticModel):
             return cls(**dict(row))
 
     @classmethod
-    async def fetch_one(cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions) -> Optional["BaseModel"]:
+    async def fetch_one(
+        cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions
+    ) -> Optional["BaseModel"]:
         """
         Retrieve a single record from the database that matches the given conditions.
         """
-        selected_columns = ", ".join(set(columns or []) | {"id"})  # Ensure 'id' is always selected
-        where_clause = " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys())) if conditions else ""
+        selected_columns = ", ".join(
+            set(columns or []) | {"id"}
+        )  # Ensure 'id' is always selected
+        where_clause = (
+            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
+            if conditions
+            else ""
+        )
         query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
         if where_clause:
             query += f" WHERE {where_clause}"
@@ -72,12 +85,20 @@ class BaseModel(PydanticModel):
             return cls(**dict(row)) if row else None
 
     @classmethod
-    async def fetch_all(cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions) -> List["BaseModel"]:
+    async def fetch_all(
+        cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions
+    ) -> List["BaseModel"]:
         """
         Retrieve multiple records from the database that match the given conditions.
         """
-        selected_columns = ", ".join(set(columns or []) | {"id"})  # Ensure 'id' is always selected
-        where_clause = " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys())) if conditions else ""
+        selected_columns = ", ".join(
+            set(columns or []) | {"id"}
+        )  # Ensure 'id' is always selected
+        where_clause = (
+            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
+            if conditions
+            else ""
+        )
         query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
         if where_clause:
             query += f" WHERE {where_clause}"
@@ -87,12 +108,23 @@ class BaseModel(PydanticModel):
             return [cls(**dict(row)) for row in rows]
 
     @classmethod
-    async def fetch_filter(cls, pool: asyncpg.Pool, conditions: Dict[str, Any], columns: Optional[List[str]] = None) -> List["BaseModel"]:
+    async def fetch_filter(
+        cls,
+        pool: asyncpg.Pool,
+        conditions: Dict[str, Any],
+        columns: Optional[List[str]] = None,
+    ) -> List["BaseModel"]:
         """
         Retrieve multiple records from the database based on filtering criteria.
         """
-        selected_columns = ", ".join(set(columns or []) | {"id"})  # Ensure 'id' is always selected
-        where_clause = " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys())) if conditions else ""
+        selected_columns = ", ".join(
+            set(columns or []) | {"id"}
+        )  # Ensure 'id' is always selected
+        where_clause = (
+            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
+            if conditions
+            else ""
+        )
         query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
         if where_clause:
             query += f" WHERE {where_clause}"
@@ -108,7 +140,9 @@ class BaseModel(PydanticModel):
         if not updates:
             return
 
-        set_clause = ", ".join(f"{key} = ${i+2}" for i, key in enumerate(updates.keys()))
+        set_clause = ", ".join(
+            f"{key} = ${i+2}" for i, key in enumerate(updates.keys())
+        )
         query = f"UPDATE {self.Meta.table_name} SET {set_clause} WHERE id = $1"
 
         async with pool.acquire() as conn:

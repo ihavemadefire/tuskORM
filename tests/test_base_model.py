@@ -5,6 +5,7 @@ import asyncio
 from typing import List
 from tuskorm.models.base_model import BaseModel  # Import the BaseModel from tuskORM
 
+
 # Define a test model
 class UserModel(BaseModel):
     id: uuid.UUID
@@ -25,9 +26,9 @@ async def db_pool():
         user="tuskorm",
         password="tuskorm",
         host="localhost",
-        port=5432
+        port=5432,
     )
-    
+
     async with pool.acquire() as conn:
         # Ensure the test table exists
         await conn.execute(
