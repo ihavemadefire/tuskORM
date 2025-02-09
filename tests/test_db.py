@@ -4,12 +4,13 @@ from tuskorm.db.async_db import AsyncDatabase
 TEST_DB_DSN = "postgresql://tuskorm:tuskorm@localhost:5432/tuskorm_test"
 db = AsyncDatabase(dsn=TEST_DB_DSN)
 
+
 @pytest.mark.asyncio
 async def test_database_connection():
     """Tests connecting and disconnecting from the database."""
-    
+
     # Ensure initial state
-    assert db.pool is None  
+    assert db.pool is None
 
     # Test connect()
     await db.connect()
@@ -19,10 +20,11 @@ async def test_database_connection():
     await db.disconnect()
     assert db.pool is None
 
+
 @pytest.mark.asyncio
 async def test_fetch_one():
     """Tests fetching a single record from the database."""
-    
+
     # Ensure database is connected
     await db.connect()
 
@@ -35,11 +37,12 @@ async def test_fetch_one():
 
     # Cleanup
     await db.disconnect()
-    
+
+
 @pytest.mark.asyncio
 async def test_fetch_all():
     """Tests fetching multiple records from the database."""
-    
+
     # Ensure database is connected
     await db.connect()
 
@@ -54,10 +57,11 @@ async def test_fetch_all():
     # Cleanup
     await db.disconnect()
 
+
 @pytest.mark.asyncio
 async def test_execute():
     """Tests executing a simple SQL statement."""
-    
+
     # Ensure database is connected
     await db.connect()
 
