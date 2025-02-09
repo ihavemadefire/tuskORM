@@ -1,6 +1,6 @@
 import asyncpg
 import uuid
-from typing import Type, Dict, Any, List, Optional
+from typing import Type, Dict, Any, List, Optional, Union
 from pydantic import BaseModel as PydanticModel, Field, ConfigDict
 
 
@@ -111,27 +111,136 @@ class BaseModel(PydanticModel):
     async def fetch_filter(
         cls,
         pool: asyncpg.Pool,
-        conditions: Dict[str, Any],
+        conditions: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None,
         columns: Optional[List[str]] = None,
+        order_by: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        distinct: bool = False,
     ) -> List["BaseModel"]:
         """
         Retrieve multiple records from the database based on filtering criteria.
+
+        Supports:
+        - Custom comparison operators (`=`, `>`, `<`, `!=`, `LIKE`, `IN`, `IS NULL`)
+        - Ordering results (`ORDER BY`)
+        - Pagination (`LIMIT`, `OFFSET`)
+        - Logical `OR` conditions
+        - Selecting distinct rows (`DISTINCT`)
         """
-        selected_columns = ", ".join(
-            set(columns or []) | {"id"}
-        )  # Ensure 'id' is always selected
-        where_clause = (
-            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
-            if conditions
-            else ""
+
+        selected_columns = (
+            ", ".join(set(columns or []) | {"id"})
+            if not distinct
+            else f"DISTINCT {', '.join(set(columns or []) | {'id'})}"
         )
         query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
-        if where_clause:
-            query += f" WHERE {where_clause}"
+        query_values = []
+        where_clauses = []
+
+        # Handle WHERE conditions
+        if conditions:
+            if isinstance(conditions, list):  # OR conditions
+                or_clauses = []
+                for condition in conditions:
+                    sub_clauses = []
+                    for key, value in condition.items():
+                        operator, column = cls._parse_filter_key(key)
+
+                        # Handle special operators
+                        if operator in ["IS NULL", "IS NOT NULL"]:
+                            sub_clauses.append(
+                                f"{column} {operator}"
+                            )  # No placeholders
+                        elif operator in ["IN", "NOT IN"]:
+                            if not isinstance(value, list):
+                                raise ValueError(
+                                    f"Expected list for '{key}', got {type(value)}"
+                                )
+                            placeholders = ", ".join(
+                                f"${len(query_values) + j + 1}"
+                                for j in range(len(value))
+                            )
+                            sub_clauses.append(f"{column} {operator} ({placeholders})")
+                            query_values.extend(value)  # Flatten the list
+                        else:
+                            sub_clauses.append(
+                                f"{column} {operator} ${len(query_values) + 1}"
+                            )
+                            query_values.append(value)
+
+                    or_clauses.append(f"({' AND '.join(sub_clauses)})")
+                where_clauses.append(f"({' OR '.join(or_clauses)})")
+
+            else:  # AND conditions
+                for key, value in conditions.items():
+                    operator, column = cls._parse_filter_key(key)
+
+                    # Handle special operators
+                    if operator in ["IS NULL", "IS NOT NULL"]:
+                        where_clauses.append(f"{column} {operator}")  # No placeholders
+                    elif operator in ["IN", "NOT IN"]:
+                        if not isinstance(value, list):
+                            raise ValueError(
+                                f"Expected list for '{key}', got {type(value)}"
+                            )
+                        placeholders = ", ".join(
+                            f"${len(query_values) + j + 1}" for j in range(len(value))
+                        )
+                        where_clauses.append(f"{column} {operator} ({placeholders})")
+                        query_values.extend(value)  # Flatten the list
+                    else:
+                        where_clauses.append(
+                            f"{column} {operator} ${len(query_values) + 1}"
+                        )
+                        query_values.append(value)
+
+        if where_clauses:
+            query += f" WHERE {' AND '.join(where_clauses)}"
+
+        # Handle ORDER BY
+        if order_by:
+            order_clause = ", ".join(
+                f"{col[1:]} DESC" if col.startswith("-") else f"{col} ASC"
+                for col in order_by
+            )
+            query += f" ORDER BY {order_clause}"
+
+        # Handle LIMIT and OFFSET
+        if limit:
+            query += f" LIMIT {limit}"
+        if offset:
+            query += f" OFFSET {offset}"
 
         async with pool.acquire() as conn:
-            rows = await conn.fetch(query, *conditions.values())
-            return [cls.model_construct(**dict(row)) for row in rows]
+            rows = await conn.fetch(query, *query_values)
+            return [cls(**dict(row)) for row in rows]
+
+    @staticmethod
+    def _parse_filter_key(key: str):
+        """
+        Parse filter key to extract the column name and SQL operator.
+
+        Example:
+            "age__gte" -> ("age", ">=")
+            "name__like" -> ("name", "LIKE")
+        """
+        operators = {
+            "greaterEq": ">=",
+            "greater": ">",
+            "less": "<=",
+            "lessEq": "<",
+            "notEq": "!=",
+            "like": "LIKE",
+            "in": "IN",
+            "notIn": "NOT IN",
+            "isNull": "IS NULL",
+            "isNotNull": "IS NOT NULL",
+        }
+        if "__" in key:
+            column, op = key.split("__", 1)
+            return operators.get(op, "="), column  # Default to '=' if unknown
+        return "=", key  # Default to '=' operator
 
     async def update(self, pool: asyncpg.Pool, **updates) -> None:
         """
