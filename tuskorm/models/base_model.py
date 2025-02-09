@@ -265,3 +265,54 @@ class BaseModel(PydanticModel):
 
         async with pool.acquire() as conn:
             await conn.execute(query, self.id)
+
+############### Migrations Functions ####################
+    @classmethod
+    async def _get_existing_columns(cls, pool: asyncpg.Pool) -> Dict[str, str]:
+        """
+        Retrieve the existing columns and their types from the database.
+        """
+        query = f"""
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name = '{cls.Meta.table_name}';
+        """
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query)
+        return {row["column_name"]: row["data_type"] for row in rows}
+
+    @classmethod
+    async def sync_schema(cls, pool: asyncpg.Pool) -> None:
+        """Ensure the table schema matches the model definition, applying necessary migrations."""
+        existing_columns = await cls._get_existing_columns(pool)
+        model_fields = cls.model_fields 
+
+
+        alter_statements = []
+
+        for field_name, field_type in model_fields.items():
+            if field_name not in existing_columns:
+                alter_statements.append(f"ADD COLUMN {field_name} {cls._pg_type(field_type)}")
+
+        for column_name in existing_columns.keys():
+            if column_name not in model_fields:
+                print(f"⚠️ Warning: {column_name} is no longer in the model and will be dropped.")
+                alter_statements.append(f"DROP COLUMN {column_name}")
+
+        if alter_statements:
+            alter_query = f"ALTER TABLE {cls.Meta.table_name} " + ", ".join(alter_statements)
+            async with pool.acquire() as conn:
+                await conn.execute(alter_query)
+
+    @staticmethod
+    def _pg_type(py_type) -> str:
+        """Map Python types to PostgreSQL types."""
+        type_map = {
+            int: "INTEGER",
+            str: "TEXT",
+            bool: "BOOLEAN",
+            float: "REAL",
+            uuid.UUID: "UUID",
+        }
+        return type_map.get(py_type, "TEXT")
