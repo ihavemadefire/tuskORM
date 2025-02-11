@@ -38,7 +38,7 @@ async def test_sync_schema_add_column(db_pool):
     """
     Test that `sync_schema` correctly adds a new column to an existing table.
     """
-       # 🔹 1. Drop table in a separate transaction
+    # 🔹 1. Drop table in a separate transaction
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
@@ -73,7 +73,7 @@ async def test_sync_schema_remove_column(db_pool):
     """
     Test that `sync_schema` correctly removes a column that was removed from the model.
     """
-       # 🔹 1. Drop table in a separate transaction
+    # 🔹 1. Drop table in a separate transaction
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
@@ -88,6 +88,7 @@ async def test_sync_schema_remove_column(db_pool):
             );
             """
         )
+
 
 @pytest.mark.asyncio
 async def test_sync_schema_rename_column(db_pool):
@@ -131,16 +132,17 @@ async def test_sync_schema_rename_column(db_pool):
         )
     assert result == "full_name"  # Column was renamed successfully
 
+
 @pytest.mark.asyncio
 async def test_sync_schema_type_change_int_to_text(db_pool):
     """
     Test that `sync_schema` correctly changes a column type from INTEGER to TEXT.
     """
-       # 🔹 1. Drop table in a separate transaction
+    # 🔹 1. Drop table in a separate transaction
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
-            
+
     # 🔹 1. Create initial table with `age` as INTEGER
     async with db_pool.acquire() as conn:
         await conn.execute(
@@ -173,7 +175,8 @@ async def test_sync_schema_type_change_int_to_text(db_pool):
             """
         )
     assert row["data_type"] == "text", f"Expected TEXT, but got {row['data_type']}"
-    
+
+
 @pytest.mark.asyncio
 async def test_sync_schema_type_change_text_to_int(db_pool):
     """
@@ -215,25 +218,29 @@ async def test_sync_schema_type_change_text_to_int(db_pool):
             WHERE table_name = 'test_users' AND column_name = 'age';
             """
         )
-    assert row["data_type"] == "integer", f"Expected INTEGER, but got {row['data_type']}"
+    assert (
+        row["data_type"] == "integer"
+    ), f"Expected INTEGER, but got {row['data_type']}"
 
-   
+
 class TestPgTypeMapping:
     """Tests for `_pg_type()` method in BaseModel."""
 
     @pytest.mark.parametrize(
         "python_type, expected_pg_type",
         [
-            (int, "INTEGER"),        # ✅ int → INTEGER
-            (str, "TEXT"),          # ✅ str → TEXT
-            (bool, "BOOLEAN"),      # ✅ bool → BOOLEAN
-            (float, "REAL"),        # ✅ float → REAL
-            (uuid.UUID, "UUID"),    # ✅ uuid.UUID → UUID
-            (list, "TEXT"),         # ❌ Unsupported types default to TEXT
-            (dict, "TEXT"),         # ❌ Unsupported types default to TEXT
-            (None, "TEXT"),         # ❌ None should default to TEXT
+            (int, "INTEGER"),  # ✅ int → INTEGER
+            (str, "TEXT"),  # ✅ str → TEXT
+            (bool, "BOOLEAN"),  # ✅ bool → BOOLEAN
+            (float, "REAL"),  # ✅ float → REAL
+            (uuid.UUID, "UUID"),  # ✅ uuid.UUID → UUID
+            (list, "TEXT"),  # ❌ Unsupported types default to TEXT
+            (dict, "TEXT"),  # ❌ Unsupported types default to TEXT
+            (None, "TEXT"),  # ❌ None should default to TEXT
         ],
     )
     def test_pg_type_mapping(self, python_type, expected_pg_type):
         """Test that `_pg_type` correctly maps Python types to PostgreSQL types."""
-        assert BaseModel._pg_type(python_type) == expected_pg_type, f"Failed for type: {python_type}"
+        assert (
+            BaseModel._pg_type(python_type) == expected_pg_type
+        ), f"Failed for type: {python_type}"

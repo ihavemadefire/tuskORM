@@ -266,7 +266,7 @@ class BaseModel(PydanticModel):
         async with pool.acquire() as conn:
             await conn.execute(query, self.id)
 
-############### Migrations Functions ####################
+    ############### Migrations Functions ####################
     @classmethod
     async def _get_existing_columns(cls, pool: asyncpg.Pool) -> dict:
         query = f"""
@@ -285,7 +285,9 @@ class BaseModel(PydanticModel):
         """Ensure the table schema matches the model definition, applying necessary migrations."""
 
         # 🔹 Step 1: Get existing schema information
-        existing_columns = await cls._get_existing_columns(pool)  # {column_name: pg_type}
+        existing_columns = await cls._get_existing_columns(
+            pool
+        )  # {column_name: pg_type}
 
         model_fields = cls.model_fields  # {field_name: python_type}
 
@@ -297,13 +299,17 @@ class BaseModel(PydanticModel):
         for old_name, new_name in renamed_columns.items():
             if old_name in existing_columns and new_name not in model_fields:
                 print(f"🔄 Renaming column: {old_name} → {new_name}")
-                alter_statements.append(f"ALTER TABLE {cls.Meta.table_name} RENAME COLUMN {old_name} TO {new_name}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} RENAME COLUMN {old_name} TO {new_name}"
+                )
 
         # ➕ Handle added columns
         for field_name, field_type in model_fields.items():
             if field_name not in existing_columns:
                 print(f"➕ Adding column: {field_name}")
-                alter_statements.append(f"ALTER TABLE {cls.Meta.table_name} ADD COLUMN {field_name} {cls._pg_type(field_type.annotation)}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} ADD COLUMN {field_name} {cls._pg_type(field_type.annotation)}"
+                )
 
         # ⚠️ Handle type changes
         for field_name, field_type in model_fields.items():
@@ -313,7 +319,9 @@ class BaseModel(PydanticModel):
                 new_type = cls._pg_type(field_type.annotation)
 
                 if current_type != new_type:
-                    print(f"⚠️ Changing type of {field_name} from {current_type} → {new_type}")
+                    print(
+                        f"⚠️ Changing type of {field_name} from {current_type} → {new_type}"
+                    )
 
                     # Special handling for TEXT → INTEGER conversion
                     if current_type.lower() == "text" and new_type.lower() == "integer":
@@ -329,7 +337,9 @@ class BaseModel(PydanticModel):
         for column_name in existing_columns.keys():
             if column_name not in model_fields and column_name not in renamed_columns:
                 print(f"⚠️ Dropping column {column_name}")
-                alter_statements.append(f"ALTER TABLE {cls.Meta.table_name} DROP COLUMN {column_name}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} DROP COLUMN {column_name}"
+                )
 
         # ✅ Execute all collected ALTER statements one by one
         if alter_statements:
