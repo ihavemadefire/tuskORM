@@ -1,8 +1,14 @@
 import pytest
 from tuskorm.db.async_db import AsyncDatabase
 
-TEST_DB_DSN = "postgresql://tuskorm:tuskorm@localhost:5432/tuskorm_test"
-db = AsyncDatabase(dsn=TEST_DB_DSN)
+TEST_DB_PARAMS = {
+    "database": "tuskorm_test",
+    "user": "tuskorm",
+    "password": "tuskorm",
+    "host": "localhost",
+    "port": 5432
+}
+db = AsyncDatabase(**TEST_DB_PARAMS)
 
 
 @pytest.mark.asyncio
