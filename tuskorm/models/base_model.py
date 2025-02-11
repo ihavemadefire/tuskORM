@@ -265,3 +265,98 @@ class BaseModel(PydanticModel):
 
         async with pool.acquire() as conn:
             await conn.execute(query, self.id)
+
+    ############### Migrations Functions ####################
+    @classmethod
+    async def _get_existing_columns(cls, pool: asyncpg.Pool) -> dict:
+        query = f"""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_name = '{cls.Meta.table_name}';
+        """
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query)
+            result = {row["column_name"]: row["data_type"] for row in rows}
+            print(f"🔍 DB Schema for {cls.Meta.table_name}: {result}")  # Debugging log
+            return result
+
+    @classmethod
+    async def sync_schema(cls, pool: asyncpg.Pool) -> None:
+        """Ensure the table schema matches the model definition, applying necessary migrations."""
+
+        # 🔹 Step 1: Get existing schema information
+        existing_columns = await cls._get_existing_columns(
+            pool
+        )  # {column_name: pg_type}
+
+        model_fields = cls.model_fields  # {field_name: python_type}
+
+        renamed_columns = getattr(cls.Meta, "renamed_columns", {})
+
+        alter_statements = []  # Store all ALTER TABLE statements
+
+        # 🔄 Handle renamed columns first
+        for old_name, new_name in renamed_columns.items():
+            if old_name in existing_columns and new_name not in model_fields:
+                print(f"🔄 Renaming column: {old_name} → {new_name}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} RENAME COLUMN {old_name} TO {new_name}"
+                )
+
+        # ➕ Handle added columns
+        for field_name, field_type in model_fields.items():
+            if field_name not in existing_columns:
+                print(f"➕ Adding column: {field_name}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} ADD COLUMN {field_name} {cls._pg_type(field_type.annotation)}"
+                )
+
+        # ⚠️ Handle type changes
+        for field_name, field_type in model_fields.items():
+            if field_name in existing_columns:
+                current_type = existing_columns[field_name]
+                test = field_type.annotation
+                new_type = cls._pg_type(field_type.annotation)
+
+                if current_type != new_type:
+                    print(
+                        f"⚠️ Changing type of {field_name} from {current_type} → {new_type}"
+                    )
+
+                    # Special handling for TEXT → INTEGER conversion
+                    if current_type.lower() == "text" and new_type.lower() == "integer":
+                        alter_statements.append(
+                            f"ALTER TABLE {cls.Meta.table_name} ALTER COLUMN {field_name} SET DATA TYPE {new_type} USING {field_name}::INTEGER"
+                        )
+                    else:
+                        alter_statements.append(
+                            f"ALTER TABLE {cls.Meta.table_name} ALTER COLUMN {field_name} SET DATA TYPE {new_type}"
+                        )
+
+        # 🚨 Handle removed columns
+        for column_name in existing_columns.keys():
+            if column_name not in model_fields and column_name not in renamed_columns:
+                print(f"⚠️ Dropping column {column_name}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} DROP COLUMN {column_name}"
+                )
+
+        # ✅ Execute all collected ALTER statements one by one
+        if alter_statements:
+            async with pool.acquire() as conn:
+                async with conn.transaction():  # Wrap in a transaction for atomicity
+                    for statement in alter_statements:
+                        print(f"🚀 Executing schema update: {statement}")  # Debugging
+                        await conn.execute(statement)
+
+    @classmethod
+    def _pg_type(cls, python_type):
+        """Maps Python types to PostgreSQL column types."""
+        type_mapping = {
+            int: "INTEGER",
+            str: "TEXT",
+            bool: "BOOLEAN",
+            float: "REAL",
+            uuid.UUID: "UUID",
+        }
+        return type_mapping.get(python_type, "TEXT")  # Default to TEXT
