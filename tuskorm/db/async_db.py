@@ -1,75 +1,72 @@
 import asyncpg
-from typing import Optional
-
+import logging
+import asyncio
 
 class AsyncDatabase:
-    """
-    Manages async PostgreSQL connections and connection pooling for TuskORM.
-    """
-
-    def __init__(self, dsn: str, min_size: int = 1, max_size: int = 10):
-        """
-        Initializes the database connection pool.
-
-        :param dsn: Database connection string.
-        :param min_size: Minimum number of connections in the pool.
-        :param max_size: Maximum number of connections in the pool.
-        """
-        self.dsn = dsn
-        self.min_size = min_size
-        self.max_size = max_size
-        self.pool: Optional[asyncpg.Pool] = None
+    """Asynchronous PostgreSQL database connection handler with robust error handling."""
+    
+    def __init__(self, database: str, user: str, password: str, host: str, port: int = 5432):
+        self.database = database
+        self.user = user
+        self.password = password
+        self.host = host
+        self.port = port
+        self.pool = None  # Connection pool
+        self.retry_attempts = 3  # Number of retries before failing
 
     async def connect(self):
-        """
-        Establishes the connection pool.
-        """
-        if self.pool is None:
-            self.pool = await asyncpg.create_pool(
-                dsn=self.dsn, min_size=self.min_size, max_size=self.max_size
-            )
-            print("Database connected successfully.")
+        """Establish connection pool with retries."""
+        for attempt in range(1, self.retry_attempts + 1):
+            try:
+                self.pool = await asyncpg.create_pool(
+                    database=self.database,
+                    user=self.user,
+                    password=self.password,
+                    host=self.host,
+                    port=self.port,
+                    min_size=1,  # Minimum number of connections
+                    max_size=10, # Maximum number of connections
+                    timeout=10   # Connection timeout in seconds
+                )
+                logging.info(f"✅ Connected to database {self.database} on attempt {attempt}")
+                return
+            except asyncpg.PostgresError as e:
+                logging.error(f"❌ Database connection failed (attempt {attempt}/{self.retry_attempts}): {e}")
+                if attempt == self.retry_attempts:
+                    raise
+                await asyncio.sleep(2)  # Wait before retrying
 
     async def disconnect(self):
-        """
-        Closes the database connection pool.
-        """
-        if self.pool is not None:
+        """Close the database connection pool."""
+        if self.pool:
             await self.pool.close()
             self.pool = None
-            print("Database connection closed.")
+            logging.info("🔌 Disconnected from database.")
+
+    async def execute(self, query: str, *args) -> str:
+        """Execute a query and return status message."""
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(query, *args)
+                return result
+        except asyncpg.PostgresError as e:
+            logging.error(f"❗ Database execution error: {e}")
+            raise
 
     async def fetch_one(self, query: str, *args):
-        """
-        Fetches a single record from the database.
-
-        :param query: SQL query string.
-        :param args: Query parameters.
-        :return: Single database record or None.
-        """
-        async with self.pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+        """Fetch a single record."""
+        try:
+            async with self.pool.acquire() as conn:
+                return await conn.fetchrow(query, *args)
+        except asyncpg.PostgresError as e:
+            logging.error(f"❗ Fetch error: {e}")
+            raise
 
     async def fetch_all(self, query: str, *args):
-        """
-        Fetches multiple records from the database.
-
-        :param query: SQL query string.
-        :param args: Query parameters.
-        :return: List of records.
-        """
-        async with self.pool.acquire() as conn:
-            return await conn.fetch(query, *args)
-
-    async def execute(self, query: str, *args):
-        """
-        Executes an SQL statement (INSERT, UPDATE, DELETE) using a new connection per query.
-        Ensures transactional execution to avoid race conditions.
-
-        :param query: SQL query string.
-        :param args: Query parameters.
-        :return: Number of affected rows.
-        """
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():  # ✅ Ensure transactional execution
-                return await conn.execute(query, *args)
+        """Fetch multiple records."""
+        try:
+            async with self.pool.acquire() as conn:
+                return await conn.fetch(query, *args)
+        except asyncpg.PostgresError as e:
+            logging.error(f"❗ Fetch all error: {e}")
+            raise
