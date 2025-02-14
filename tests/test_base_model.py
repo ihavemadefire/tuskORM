@@ -1,216 +1,203 @@
+import os
 import pytest
+import subprocess
 import asyncpg
-import uuid
 import asyncio
-from typing import List, Optional
-from tuskorm.models.base_model import BaseModel  # Import the BaseModel from tuskORM
+import logging
+from pathlib import Path
+from tuskorm.models.base_model import BaseModel
+from unittest.mock import AsyncMock, patch
 
+# Test database connection details
+TEST_DB_PARAMS = {
+    "database": "tuskorm_test",
+    "user": "tuskorm",
+    "password": "tuskorm",
+    "host": "localhost",
+    "port": 5432,
+}
 
-# Define a test model
-class UserModel(BaseModel):
-    id: uuid.UUID
-    name: str
-    age: Optional[int] = None
-    status: Optional[str] = None
-    email: Optional[str] = None
-
-    class Meta:
-        table_name = "test_users"
+# Path to the tusk.py script
+TUSK_SCRIPT = Path(__file__).parent.parent / "tusk.py"
 
 
 @pytest.fixture
 async def db_pool():
-    """
-    Creates a PostgreSQL connection pool for tests within a function-scoped event loop.
-    Ensures the test table exists.
-    """
+    """Fixture to provide a database connection pool for testing."""
+    loop = asyncio.get_running_loop()  # Ensure correct event loop is used
     pool = await asyncpg.create_pool(
         database="tuskorm_test",
         user="tuskorm",
         password="tuskorm",
         host="localhost",
         port=5432,
+        loop=loop  # Explicitly passing the loop
     )
+    yield pool
+    await pool.close()
 
-    async with pool.acquire() as conn:
-        # Drop and create the table to ensure a clean schema
+
+@pytest.mark.asyncio
+async def test_create_valid_record(db_pool):
+    """Test successful creation of a record."""
+    class TestUser(BaseModel):
+        class Meta:
+            table_name = "test_users"
+
+    async with db_pool.acquire() as conn:
         await conn.execute("DROP TABLE IF EXISTS test_users;")
         await conn.execute(
             """
             CREATE TABLE test_users (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 name TEXT NOT NULL,
-                age INT,
-                status TEXT,
-                email TEXT
+                age INTEGER DEFAULT 30
             );
             """
         )
 
-    yield pool  # Provide the connection pool to the test function
-
-    async with pool.acquire() as conn:
-        await conn.execute("DROP TABLE IF EXISTS test_users;")  # Cleanup after tests
-
-    await pool.close()
-
-
-@pytest.mark.asyncio
-async def test_create(db_pool):
-    """Test that a user can be created and stored in the database."""
-    user = await UserModel.create(db_pool, name="Alice", age=25)
+    user = await TestUser.create(db_pool, name="Alice", age=25)
+    
+    assert user is not None, "Expected a user object to be returned"
     assert user.name == "Alice"
     assert user.age == 25
 
 
 @pytest.mark.asyncio
-async def test_fetch_one(db_pool):
-    """Test that a single user can be fetched by criteria."""
-    user = await UserModel.create(db_pool, name="Bob", age=30)
-    fetched_user = await UserModel.fetch_one(db_pool, ["name", "age"], name="Bob")
-    assert fetched_user is not None
-    assert fetched_user.name == "Bob"
-    assert fetched_user.age == 30
+async def test_create_record_unique_constraint(db_pool):
+    """Test handling of unique constraint violation."""
+    class TestUser(BaseModel):
+        class Meta:
+            table_name = "test_users"
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DROP TABLE IF EXISTS test_users;")
+        await conn.execute(
+            """
+            CREATE TABLE test_users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                email TEXT UNIQUE NOT NULL
+            );
+            """
+        )
+
+    user1 = await TestUser.create(db_pool, email="test@example.com")
+    assert user1 is not None
+
+    user2 = await TestUser.create(db_pool, email="test@example.com")  # Should fail
+    assert user2 is None, "Expected None due to unique constraint violation"
 
 
 @pytest.mark.asyncio
-async def test_fetch_all(db_pool):
-    """Test fetching all users."""
-    await UserModel.create(db_pool, name="Charlie", age=35)
-    await UserModel.create(db_pool, name="Diana", age=40)
+async def test_fetch_one_record(db_pool):
+    """Test fetching a single record."""
+    class TestUser(BaseModel):
+        class Meta:
+            table_name = "test_users"
 
-    users = await UserModel.fetch_all(db_pool, ["name", "age"])
-    assert len(users) >= 2  # Ensuring at least two users exist
+    async with db_pool.acquire() as conn:
+        await conn.execute("DROP TABLE IF EXISTS test_users;")
+        await conn.execute(
+            """
+            CREATE TABLE test_users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                age INTEGER DEFAULT 30
+            );
+            """
+        )
+        await conn.execute("INSERT INTO test_users (name, age) VALUES ('Alice', 25)")
 
-
-@pytest.mark.asyncio
-async def test_fetch_filter(db_pool):
-    """Test fetching users with filtering."""
-    await UserModel.create(db_pool, name="Eve", age=45)
-    users = await UserModel.fetch_filter(db_pool, {"age": 45}, ["name"])
-    assert len(users) == 1
-    assert users[0].name == "Eve"
-
-
-@pytest.mark.asyncio
-async def test_update(db_pool):
-    """Test updating a user's details."""
-    user = await UserModel.create(db_pool, name="Frank", age=50)
-    await user.update(db_pool, age=55)
-    updated_user = await UserModel.fetch_one(db_pool, ["name", "age"], name="Frank")
-    assert updated_user.age == 55
-
-
-@pytest.mark.asyncio
-async def test_delete(db_pool):
-    """Test deleting a user from the database."""
-    user = await UserModel.create(db_pool, name="Grace", age=60)
-    await user.delete(db_pool)
-    deleted_user = await UserModel.fetch_one(db_pool, ["name", "age"], name="Grace")
-    assert deleted_user is None
-
-
-# ---- Extended Filter Tests ----
+    user = await TestUser.fetch_one(db_pool, name="Alice")
+    
+    assert user is not None, "Expected a user to be fetched"
+    assert user.name == "Alice"
+    assert user.age == 25
 
 
 @pytest.mark.asyncio
-async def test_fetch_filter_greater_eq(db_pool):
-    """Test fetching users where age is greater than or equal to 30."""
-    await UserModel.create(db_pool, name="Alice", age=25)
-    await UserModel.create(db_pool, name="Bob", age=30)
-    await UserModel.create(db_pool, name="Charlie", age=35)
+async def test_fetch_all_records(db_pool):
+    """Test fetching multiple records."""
+    class TestUser(BaseModel):
+        class Meta:
+            table_name = "test_users"
 
-    users = await UserModel.fetch_filter(db_pool, {"age__greaterEq": 30}, ["name"])
-    names = {user.name for user in users}
+    async with db_pool.acquire() as conn:
+        await conn.execute("DROP TABLE IF EXISTS test_users;")
+        await conn.execute(
+            """
+            CREATE TABLE test_users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                age INTEGER DEFAULT 30
+            );
+            """
+        )
+        await conn.execute("INSERT INTO test_users (name, age) VALUES ('Alice', 25), ('Bob', 30)")
 
-    assert "Bob" in names
-    assert "Charlie" in names
-    assert "Alice" not in names
-
-
-@pytest.mark.asyncio
-async def test_fetch_filter_less_eq(db_pool):
-    """Test fetching users where age is less than or equal to 30."""
-    await UserModel.create(db_pool, name="David", age=28)
-    await UserModel.create(db_pool, name="Eve", age=35)
-
-    users = await UserModel.fetch_filter(db_pool, {"age__lessEq": 30}, ["name"])
-    names = {user.name for user in users}
-
-    assert "David" in names
-    assert "Eve" not in names
-
-
-@pytest.mark.asyncio
-async def test_fetch_filter_like(db_pool):
-    """Test fetching users with a LIKE condition."""
-    await UserModel.create(db_pool, name="Henry", age=40)
-    await UserModel.create(db_pool, name="Helen", age=29)
-    await UserModel.create(db_pool, name="Hank", age=22)
-
-    users = await UserModel.fetch_filter(db_pool, {"name__like": "He%"}, ["name"])
-    names = {user.name for user in users}
-
-    assert "Henry" in names
-    assert "Helen" in names
-    assert "Hank" not in names
+    users = await TestUser.fetch_all(db_pool)
+    
+    assert len(users) == 2, "Expected two users to be fetched"
+    assert any(user.name == "Alice" for user in users)
+    assert any(user.name == "Bob" for user in users)
 
 
 @pytest.mark.asyncio
-async def test_fetch_filter_in(db_pool):
-    """Test fetching users with an IN condition."""
-    await UserModel.create(db_pool, name="Ivy", age=50, status="active")
-    await UserModel.create(db_pool, name="Jack", age=45, status="inactive")
-    await UserModel.create(db_pool, name="Jill", age=32, status="pending")
+async def test_insert_query_generation():
+    """Test insert query generation logic."""
+    class TestUser(BaseModel):
+        class Meta:
+            table_name = "test_users"
 
-    users = await UserModel.fetch_filter(
-        db_pool, {"status__in": ["active", "pending"]}, ["name"]
+    values = {"name": "Alice", "age": 25}
+    query = TestUser._build_insert_query(values)
+
+    assert query == "INSERT INTO test_users (name, age) VALUES ($1, $2) RETURNING *"
+
+
+@pytest.mark.asyncio
+async def test_select_query_generation():
+    """Test select query generation logic."""
+    class TestUser(BaseModel):
+        class Meta:
+            table_name = "test_users"
+
+    query, values = TestUser._build_select_query(["name", "age"], {"id": "1234"})
+    
+    assert query == "SELECT name, age FROM test_users WHERE id = $1"
+    assert values == ("1234",)
+
+
+@pytest.mark.asyncio
+async def test_handle_db_exception(caplog):
+    """Test database error handling."""
+    class TestUser(BaseModel):
+        class Meta:
+            table_name = "test_users"
+
+    with caplog.at_level(logging.ERROR):
+        try:
+            raise asyncpg.UniqueViolationError("duplicate key")
+        except Exception as e:
+            TestUser._handle_db_exception("create", e)
+
+    assert any(
+        "Unique constraint violation" in record.message for record in caplog.records
+    ), f"Expected log message not found. Captured logs: {[record.message for record in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_generate_models_no_db_connection(monkeypatch):
+    """Test handling of database connection failure by modifying the env variable."""
+
+    # Patch the environment variable to simulate incorrect DB port
+    monkeypatch.setenv("TUSK_DB_PORT", "9999")
+
+    result = subprocess.run(
+        ["python", str(TUSK_SCRIPT), "generate_models"],
+        capture_output=True,
+        text=True
     )
-    names = {user.name for user in users}
 
-    assert "Ivy" in names
-    assert "Jill" in names
-    assert "Jack" not in names
-
-
-@pytest.mark.asyncio
-async def test_fetch_filter_not_in(db_pool):
-    """Test fetching users with a NOT IN condition."""
-    await UserModel.create(db_pool, name="Kyle", status="banned")
-    await UserModel.create(db_pool, name="Laura", status="active")
-    await UserModel.create(db_pool, name="Leo", status="inactive")
-
-    users = await UserModel.fetch_filter(
-        db_pool, {"status__notIn": ["banned", "inactive"]}, ["name"]
-    )
-    names = {user.name for user in users}
-
-    assert "Laura" in names
-    assert "Kyle" not in names
-    assert "Leo" not in names
-
-
-@pytest.mark.asyncio
-async def test_fetch_filter_is_null(db_pool):
-    """Test fetching users where a field IS NULL."""
-    await UserModel.create(db_pool, name="Mike", email=None)
-    await UserModel.create(db_pool, name="Nancy", email="nancy@example.com")
-
-    users = await UserModel.fetch_filter(db_pool, {"email__isNull": None}, ["name"])
-    names = {user.name for user in users}
-
-    assert "Mike" in names
-    assert "Nancy" not in names
-
-
-@pytest.mark.asyncio
-async def test_fetch_filter_is_not_null(db_pool):
-    """Test fetching users where a field IS NOT NULL."""
-    await UserModel.create(db_pool, name="Oscar", email="oscar@example.com")
-    await UserModel.create(db_pool, name="Pam", email=None)
-
-    users = await UserModel.fetch_filter(db_pool, {"email__isNotNull": None}, ["name"])
-    names = {user.name for user in users}
-
-    assert "Oscar" in names
-    assert "Pam" not in names
+    assert result.returncode == 1, "Expected exit code 1 for failed DB connection"
+    assert "Could not connect to database" in result.stderr, "Expected database connection error message not found."

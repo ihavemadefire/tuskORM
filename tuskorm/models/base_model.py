@@ -1,20 +1,16 @@
 import asyncpg
 import uuid
 import logging
+import datetime
 from typing import Type, Dict, Any, List, Optional, Union
 from pydantic import BaseModel as PydanticModel, Field, ConfigDict
 from pydantic_core import PydanticUndefinedType
-from asyncpg.exceptions import (
-    UniqueViolationError,
-    ForeignKeyViolationError,
-    PostgresError,
-    SyntaxOrAccessError,
-)
+from asyncpg.exceptions import UniqueViolationError, ForeignKeyViolationError, PostgresError
+
 
 # 🔹 Setup logging for debugging & error tracking
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class BaseModel(PydanticModel):
     """
@@ -24,114 +20,88 @@ class BaseModel(PydanticModel):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
 
-    model_config = ConfigDict(
-        extra="allow", from_attributes=True
-    )  # Allows missing fields
+    model_config = ConfigDict(extra="allow", from_attributes=True)  # Allows missing fields
 
     class Meta:
         """Meta class for defining additional table properties."""
-
         table_name: str = ""
 
     def __init_subclass__(cls, **kwargs):
-        """
-        Auto-infer table name based on the class name if not explicitly defined.
-        """
+        """Auto-infer table name based on the class name if not explicitly defined."""
         super().__init_subclass__(**kwargs)
         if not cls.Meta.table_name:
             cls.Meta.table_name = cls.__name__.lower() + "s"  # Simple pluralization
 
     @classmethod
     async def create(cls, pool: asyncpg.Pool, **kwargs) -> Optional["BaseModel"]:
-        """
-        Insert a new record into the database with support for constraints.
-        """
-        model_fields = cls.model_fields  # Get all fields from the model
-        default_values = {
-            k: getattr(cls, k, None)
-            for k in model_fields
-            if getattr(cls, k, None) is not None
-        }
+        """Insert a new record into the database with support for constraints."""
+        final_values = {k: v for k, v in kwargs.items() if v is not None}
 
-        # Merge provided kwargs with default values for fields that were not explicitly set
-        final_values = {**default_values, **kwargs}
-
-        columns = ", ".join(final_values.keys())
-        values = ", ".join(f"${i+1}" for i in range(len(final_values)))
-        query = f"INSERT INTO {cls.Meta.table_name} ({columns}) VALUES ({values}) RETURNING id, {columns}"
+        query = cls._build_insert_query(final_values)
 
         try:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(query, *final_values.values())
                 return cls(**dict(row)) if row else None
-        except UniqueViolationError:
-            logger.error(
-                f"⚠️ Unique constraint violation on table `{cls.Meta.table_name}` for data: {final_values}"
-            )
-        except ForeignKeyViolationError:
-            logger.error(
-                f"⚠️ Foreign key constraint violated on table `{cls.Meta.table_name}` for data: {final_values}"
-            )
-        except PostgresError as e:
-            logger.error(
-                f"❌ Database error in `create()` for `{cls.Meta.table_name}`: {e}"
-            )
+        except Exception as e:
+            cls._handle_db_exception("create", e, final_values)
         return None
 
     @classmethod
-    async def fetch_one(
-        cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions
-    ) -> Optional["BaseModel"]:
-        """
-        Retrieve a single record with error handling.
-        """
-        selected_columns = ", ".join(set(columns or []) | {"id"})
-        where_clause = (
-            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
-            if conditions
-            else ""
-        )
-        query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
-        if where_clause:
-            query += f" WHERE {where_clause} LIMIT 1"
+    async def fetch_one(cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions) -> Optional["BaseModel"]:
+        """Retrieve a single record with error handling."""
+        query, values = cls._build_select_query(columns, conditions, limit=1)
+        return await cls._execute_fetch(pool, query, values)
 
+    @classmethod
+    async def fetch_all(cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions) -> List["BaseModel"]:
+        """Retrieve multiple records with error handling."""
+        query, values = cls._build_select_query(columns, conditions)
+        return await cls._execute_fetch(pool, query, values, multiple=True)
+
+    @classmethod
+    async def _execute_fetch(cls, pool: asyncpg.Pool, query: str, values: tuple, multiple: bool = False):
+        """Execute fetch query and return results."""
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(query, *conditions.values())
-                return cls(**dict(row)) if row else None
-        except PostgresError as e:
-            logger.error(
-                f"❌ Database error in `fetch_one()` for `{cls.Meta.table_name}`: {e}"
-            )
-        return None
+                rows = await conn.fetch(query, *values)
+                return [cls(**dict(row)) for row in rows] if multiple else (cls(**dict(rows[0])) if rows else None)
+        except Exception as e:
+            cls._handle_db_exception("fetch", e)
+        return [] if multiple else None
 
     @classmethod
-    async def fetch_all(
-        cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions
-    ) -> List["BaseModel"]:
-        """
-        Retrieve multiple records with error handling.
-        """
-        selected_columns = ", ".join(set(columns or []) | {"id"})
-        where_clause = (
-            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
-            if conditions
-            else ""
-        )
+    def _build_insert_query(cls, values: Dict[str, Any]) -> str:
+        """Generate SQL INSERT query dynamically."""
+        columns = ", ".join(values.keys())
+        placeholders = ", ".join(f"${i+1}" for i in range(len(values)))
+        return f"INSERT INTO {cls.Meta.table_name} ({columns}) VALUES ({placeholders}) RETURNING *"
+
+    @classmethod
+    def _build_select_query(cls, columns: Optional[List[str]], conditions: Dict[str, Any], limit: Optional[int] = None) -> tuple:
+        """Generate SQL SELECT query dynamically."""
+        selected_columns = ", ".join(columns) if columns else "*"
+        where_clause = " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
         query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
         if where_clause:
             query += f" WHERE {where_clause}"
+        if limit:
+            query += f" LIMIT {limit}"
+        return query, tuple(conditions.values())
 
-        try:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(query, *conditions.values())
-                return [cls(**dict(row)) for row in rows]
-        except PostgresError as e:
-            logger.error(
-                f"❌ Database error in `fetch_all()` for `{cls.Meta.table_name}`: {e}"
-            )
-        return []
+    @classmethod
+    def _handle_db_exception(cls, operation: str, exception: Exception, data: Optional[Dict[str, Any]] = None):
+        """Centralized error handling for database operations."""
+        if isinstance(exception, UniqueViolationError):
+            logger.error(f"⚠️ Unique constraint violation in `{operation}` on `{cls.Meta.table_name}` for data: {data}")
+        elif isinstance(exception, ForeignKeyViolationError):
+            logger.error(f"⚠️ Foreign key constraint violated in `{operation}` on `{cls.Meta.table_name}` for data: {data}")
+        elif isinstance(exception, PostgresError):
+            logger.error(f"❌ Database error in `{operation}` for `{cls.Meta.table_name}`: {exception}")
+        else:
+            logger.error(f"❌ Unexpected error in `{operation}` for `{cls.Meta.table_name}`: {exception}")
 
+    ############### CRUD Operations ####################
     @classmethod
     def _parse_filter_key(cls, key: str):
         """
