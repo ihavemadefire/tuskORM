@@ -245,6 +245,7 @@ class TestPgTypeMapping:
             BaseModel._pg_type(python_type) == expected_pg_type
         ), f"Failed for type: {python_type}"
 
+
 @pytest.mark.asyncio
 async def test_sync_schema_add_multiple_columns(db_pool):
     """
@@ -283,12 +284,13 @@ async def test_sync_schema_add_multiple_columns(db_pool):
 
     assert len(result) == 2, "Columns 'name' and 'age' should be added."
 
+
 @pytest.mark.asyncio
 async def test_sync_schema_drop_column(db_pool):
     """
     Test that `sync_schema` correctly removes a column that was removed from the model.
     """
-        # 🔹 1. Drop table in a separate transaction
+    # 🔹 1. Drop table in a separate transaction
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
@@ -327,12 +329,13 @@ async def test_sync_schema_drop_column(db_pool):
 
     assert len(result) == 0, "Column 'obsolete_column' should be dropped."
 
+
 @pytest.mark.asyncio
 async def test_sync_schema_rename_multiple_columns(db_pool):
     """
     Test that `sync_schema` correctly renames multiple existing columns.
     """
-        # 🔹 1. Drop table in a separate transaction
+    # 🔹 1. Drop table in a separate transaction
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
@@ -379,14 +382,17 @@ async def test_sync_schema_rename_multiple_columns(db_pool):
         )
 
     assert len(new_result) == 2, "Columns 'fname' and 'lname' should exist."
-    assert len(old_result) == 0, "Columns 'first_name' and 'last_name' should not exist."
+    assert (
+        len(old_result) == 0
+    ), "Columns 'first_name' and 'last_name' should not exist."
+
 
 @pytest.mark.asyncio
 async def test_sync_schema_change_multiple_column_types(db_pool):
     """
     Test that `sync_schema` correctly changes types of multiple columns.
     """
-        # 🔹 1. Drop table in a separate transaction
+    # 🔹 1. Drop table in a separate transaction
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
@@ -427,8 +433,12 @@ async def test_sync_schema_change_multiple_column_types(db_pool):
 
     type_map = {row["column_name"]: row["data_type"] for row in result}
 
-    assert type_map.get("age") == "integer", f"Expected 'age' to be INTEGER, but got {type_map.get('age')}"
-    assert type_map.get("active") == "boolean", f"Expected 'active' to be BOOLEAN, but got {type_map.get('active')}"
+    assert (
+        type_map.get("age") == "integer"
+    ), f"Expected 'age' to be INTEGER, but got {type_map.get('age')}"
+    assert (
+        type_map.get("active") == "boolean"
+    ), f"Expected 'active' to be BOOLEAN, but got {type_map.get('active')}"
 
 
 @pytest.mark.asyncio
@@ -440,7 +450,7 @@ async def test_sync_schema_rename_and_change_type(db_pool):
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
-    
+
     async with db_pool.acquire() as conn:
         await conn.execute(
             """
@@ -472,7 +482,9 @@ async def test_sync_schema_rename_and_change_type(db_pool):
             WHERE table_name = 'test_users' AND column_name = 'new_column';
             """
         )
-    assert row["data_type"] == "integer", f"Expected INTEGER, but got {row['data_type']}"
+    assert (
+        row["data_type"] == "integer"
+    ), f"Expected INTEGER, but got {row['data_type']}"
 
 
 @pytest.mark.asyncio
@@ -484,7 +496,7 @@ async def test_sync_schema_add_rename_delete_columns(db_pool):
     async with db_pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DROP TABLE IF EXISTS test_users;")
-    
+
     async with db_pool.acquire() as conn:
         await conn.execute(
             """
@@ -564,10 +576,13 @@ async def test_sync_schema_add_not_null_with_default(db_pool):
             WHERE table_name = 'test_users' AND column_name = 'status';
             """
         )
-    
+
     # ✅ Assert default value and NOT NULL constraint
-    assert row["column_default"] == "'active'::text", f"Expected 'active' as default, but got {row['column_default']}"
+    assert (
+        row["column_default"] == "'active'::text"
+    ), f"Expected 'active' as default, but got {row['column_default']}"
     assert row["is_nullable"] == "NO", "Column 'status' should be NOT NULL"
+
 
 @pytest.mark.asyncio
 async def test_sync_schema_add_not_null_with_default(db_pool):
@@ -609,7 +624,9 @@ async def test_sync_schema_add_not_null_with_default(db_pool):
             WHERE table_name = 'test_users' AND column_name = 'status';
             """
         )
-    
+
     # ✅ Assert default value and NOT NULL constraint
-    assert row["column_default"] == "'active'::text", f"Expected 'active' as default, but got {row['column_default']}"
+    assert (
+        row["column_default"] == "'active'::text"
+    ), f"Expected 'active' as default, but got {row['column_default']}"
     assert row["is_nullable"] == "NO", "Column 'status' should be NOT NULL"

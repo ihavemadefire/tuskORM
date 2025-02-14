@@ -15,6 +15,7 @@ from asyncpg.exceptions import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class BaseModel(PydanticModel):
     """
     Base class for ORM models in TuskORM.
@@ -23,10 +24,13 @@ class BaseModel(PydanticModel):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
 
-    model_config = ConfigDict(extra="allow", from_attributes=True)  # Allows missing fields
+    model_config = ConfigDict(
+        extra="allow", from_attributes=True
+    )  # Allows missing fields
 
     class Meta:
         """Meta class for defining additional table properties."""
+
         table_name: str = ""
 
     def __init_subclass__(cls, **kwargs):
@@ -43,7 +47,11 @@ class BaseModel(PydanticModel):
         Insert a new record into the database with support for constraints.
         """
         model_fields = cls.model_fields  # Get all fields from the model
-        default_values = {k: getattr(cls, k, None) for k in model_fields if getattr(cls, k, None) is not None}
+        default_values = {
+            k: getattr(cls, k, None)
+            for k in model_fields
+            if getattr(cls, k, None) is not None
+        }
 
         # Merge provided kwargs with default values for fields that were not explicitly set
         final_values = {**default_values, **kwargs}
@@ -57,21 +65,32 @@ class BaseModel(PydanticModel):
                 row = await conn.fetchrow(query, *final_values.values())
                 return cls(**dict(row)) if row else None
         except UniqueViolationError:
-            logger.error(f"⚠️ Unique constraint violation on table `{cls.Meta.table_name}` for data: {final_values}")
+            logger.error(
+                f"⚠️ Unique constraint violation on table `{cls.Meta.table_name}` for data: {final_values}"
+            )
         except ForeignKeyViolationError:
-            logger.error(f"⚠️ Foreign key constraint violated on table `{cls.Meta.table_name}` for data: {final_values}")
+            logger.error(
+                f"⚠️ Foreign key constraint violated on table `{cls.Meta.table_name}` for data: {final_values}"
+            )
         except PostgresError as e:
-            logger.error(f"❌ Database error in `create()` for `{cls.Meta.table_name}`: {e}")
+            logger.error(
+                f"❌ Database error in `create()` for `{cls.Meta.table_name}`: {e}"
+            )
         return None
 
-
     @classmethod
-    async def fetch_one(cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions) -> Optional["BaseModel"]:
+    async def fetch_one(
+        cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions
+    ) -> Optional["BaseModel"]:
         """
         Retrieve a single record with error handling.
         """
-        selected_columns = ", ".join(set(columns or []) | {"id"})  
-        where_clause = " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys())) if conditions else ""
+        selected_columns = ", ".join(set(columns or []) | {"id"})
+        where_clause = (
+            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
+            if conditions
+            else ""
+        )
         query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
         if where_clause:
             query += f" WHERE {where_clause} LIMIT 1"
@@ -81,16 +100,24 @@ class BaseModel(PydanticModel):
                 row = await conn.fetchrow(query, *conditions.values())
                 return cls(**dict(row)) if row else None
         except PostgresError as e:
-            logger.error(f"❌ Database error in `fetch_one()` for `{cls.Meta.table_name}`: {e}")
+            logger.error(
+                f"❌ Database error in `fetch_one()` for `{cls.Meta.table_name}`: {e}"
+            )
         return None
 
     @classmethod
-    async def fetch_all(cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions) -> List["BaseModel"]:
+    async def fetch_all(
+        cls, pool: asyncpg.Pool, columns: Optional[List[str]] = None, **conditions
+    ) -> List["BaseModel"]:
         """
         Retrieve multiple records with error handling.
         """
-        selected_columns = ", ".join(set(columns or []) | {"id"})  
-        where_clause = " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys())) if conditions else ""
+        selected_columns = ", ".join(set(columns or []) | {"id"})
+        where_clause = (
+            " AND ".join(f"{key} = ${i+1}" for i, key in enumerate(conditions.keys()))
+            if conditions
+            else ""
+        )
         query = f"SELECT {selected_columns} FROM {cls.Meta.table_name}"
         if where_clause:
             query += f" WHERE {where_clause}"
@@ -100,7 +127,9 @@ class BaseModel(PydanticModel):
                 rows = await conn.fetch(query, *conditions.values())
                 return [cls(**dict(row)) for row in rows]
         except PostgresError as e:
-            logger.error(f"❌ Database error in `fetch_all()` for `{cls.Meta.table_name}`: {e}")
+            logger.error(
+                f"❌ Database error in `fetch_all()` for `{cls.Meta.table_name}`: {e}"
+            )
         return []
 
     @classmethod
@@ -176,12 +205,21 @@ class BaseModel(PydanticModel):
                                 sub_clauses.append(f"{column} {operator}")
                             elif operator in ["IN", "NOT IN"]:
                                 if not isinstance(value, list):
-                                    raise ValueError(f"Expected list for '{key}', got {type(value)}")
-                                placeholders = ", ".join(f"${len(query_values) + j + 1}" for j in range(len(value)))
-                                sub_clauses.append(f"{column} {operator} ({placeholders})")
+                                    raise ValueError(
+                                        f"Expected list for '{key}', got {type(value)}"
+                                    )
+                                placeholders = ", ".join(
+                                    f"${len(query_values) + j + 1}"
+                                    for j in range(len(value))
+                                )
+                                sub_clauses.append(
+                                    f"{column} {operator} ({placeholders})"
+                                )
                                 query_values.extend(value)
                             else:
-                                sub_clauses.append(f"{column} {operator} ${len(query_values) + 1}")
+                                sub_clauses.append(
+                                    f"{column} {operator} ${len(query_values) + 1}"
+                                )
                                 query_values.append(value)
 
                         or_clauses.append(f"({' AND '.join(sub_clauses)})")
@@ -195,16 +233,27 @@ class BaseModel(PydanticModel):
                             where_clauses.append(f"{column} {operator}")
                         elif operator in ["IN", "NOT IN"]:
                             if not isinstance(value, list):
-                                raise ValueError(f"Expected list for '{key}', got {type(value)}")
-                            placeholders = ", ".join(f"${len(query_values) + j + 1}" for j in range(len(value)))
-                            where_clauses.append(f"{column} {operator} ({placeholders})")
+                                raise ValueError(
+                                    f"Expected list for '{key}', got {type(value)}"
+                                )
+                            placeholders = ", ".join(
+                                f"${len(query_values) + j + 1}"
+                                for j in range(len(value))
+                            )
+                            where_clauses.append(
+                                f"{column} {operator} ({placeholders})"
+                            )
                             query_values.extend(value)
                         else:
-                            where_clauses.append(f"{column} {operator} ${len(query_values) + 1}")
+                            where_clauses.append(
+                                f"{column} {operator} ${len(query_values) + 1}"
+                            )
                             query_values.append(value)
 
             except ValueError as e:
-                logger.error(f"❌ Invalid filter condition in `fetch_filter()` for `{cls.Meta.table_name}`: {e}")
+                logger.error(
+                    f"❌ Invalid filter condition in `fetch_filter()` for `{cls.Meta.table_name}`: {e}"
+                )
                 return []
 
         # 🔹 Apply WHERE clause if necessary
@@ -225,7 +274,9 @@ class BaseModel(PydanticModel):
         if offset:
             query += f" OFFSET {offset}"
 
-        logger.debug(f"📋 Executing `fetch_filter` Query: {query} with values: {query_values}")
+        logger.debug(
+            f"📋 Executing `fetch_filter` Query: {query} with values: {query_values}"
+        )
 
         # 🔹 Execute Query Safely
         try:
@@ -233,10 +284,10 @@ class BaseModel(PydanticModel):
                 rows = await conn.fetch(query, *query_values)
                 return [cls(**dict(row)) for row in rows]
         except PostgresError as e:
-            logger.error(f"❌ Database error in `fetch_filter()` for `{cls.Meta.table_name}`: {e}")
+            logger.error(
+                f"❌ Database error in `fetch_filter()` for `{cls.Meta.table_name}`: {e}"
+            )
         return []
-
-
 
     async def update(self, pool: asyncpg.Pool, **updates) -> bool:
         """
@@ -244,8 +295,10 @@ class BaseModel(PydanticModel):
         """
         if not updates:
             return False
-        
-        set_clause = ", ".join(f"{key} = ${i+2}" for i, key in enumerate(updates.keys()))
+
+        set_clause = ", ".join(
+            f"{key} = ${i+2}" for i, key in enumerate(updates.keys())
+        )
         query = f"UPDATE {self.Meta.table_name} SET {set_clause} WHERE id = $1"
 
         try:
@@ -269,6 +322,7 @@ class BaseModel(PydanticModel):
         except PostgresError as e:
             logger.error(f"❌ Error deleting record from `{self.Meta.table_name}`: {e}")
         return False
+
     ############### Migrations Functions ####################
     @classmethod
     async def _get_existing_columns(cls, pool: asyncpg.Pool) -> dict:
@@ -297,7 +351,9 @@ class BaseModel(PydanticModel):
         for old_name, new_name in renamed_columns.items():
             if old_name in existing_columns and new_name not in existing_columns:
                 print(f"🔄 Renaming column: {old_name} → {new_name}")
-                alter_statements.append(f"ALTER TABLE {cls.Meta.table_name} RENAME COLUMN {old_name} TO {new_name}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} RENAME COLUMN {old_name} TO {new_name}"
+                )
 
         # ✅ Execute renaming before adding new columns
         async with pool.acquire() as conn:
@@ -320,9 +376,11 @@ class BaseModel(PydanticModel):
                 default_value = field_info.default
 
                 # ✅ Ensure only valid defaults are applied
-                if type(default_value) != PydanticUndefinedType:         
+                if type(default_value) != PydanticUndefinedType:
                     if isinstance(default_value, str):
-                        default_value = f"'{default_value}'"  # Ensure proper SQL string formatting
+                        default_value = (
+                            f"'{default_value}'"  # Ensure proper SQL string formatting
+                        )
                     alter_statements.append(
                         f"ALTER TABLE {cls.Meta.table_name} ADD COLUMN {field_name} {column_type} DEFAULT {default_value} NOT NULL"
                     )
@@ -337,12 +395,16 @@ class BaseModel(PydanticModel):
                 new_type = cls._pg_type(field_type.annotation)
 
                 if current_type != new_type:
-                    print(f"⚠️ Changing type of {field_name} from {current_type} → {new_type}")
+                    print(
+                        f"⚠️ Changing type of {field_name} from {current_type} → {new_type}"
+                    )
                     if current_type.lower() == "text" and new_type.lower() == "boolean":
                         alter_statements.append(
                             f"ALTER TABLE {cls.Meta.table_name} ALTER COLUMN {field_name} SET DATA TYPE {new_type} USING {field_name}::BOOLEAN"
                         )
-                    elif current_type.lower() == "text" and new_type.lower() == "integer":
+                    elif (
+                        current_type.lower() == "text" and new_type.lower() == "integer"
+                    ):
                         alter_statements.append(
                             f"ALTER TABLE {cls.Meta.table_name} ALTER COLUMN {field_name} SET DATA TYPE {new_type} USING {field_name}::INTEGER"
                         )
@@ -353,9 +415,14 @@ class BaseModel(PydanticModel):
 
         # 🚨 Step 4: Handle removed columns **(must be executed last)**
         for column_name in existing_columns.keys():
-            if column_name not in model_fields and column_name not in renamed_columns.values():
+            if (
+                column_name not in model_fields
+                and column_name not in renamed_columns.values()
+            ):
                 print(f"⚠️ Dropping column {column_name}")
-                alter_statements.append(f"ALTER TABLE {cls.Meta.table_name} DROP COLUMN {column_name}")
+                alter_statements.append(
+                    f"ALTER TABLE {cls.Meta.table_name} DROP COLUMN {column_name}"
+                )
 
         # ✅ Execute remaining ALTER statements
         if alter_statements:
@@ -365,8 +432,6 @@ class BaseModel(PydanticModel):
                         print(f"🚀 Executing schema update: {statement}")
                         await conn.execute(statement)
 
-                    
-                    
     @classmethod
     def _pg_type(cls, python_type):
         """Maps Python types to PostgreSQL column types."""

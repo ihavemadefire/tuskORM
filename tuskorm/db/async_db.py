@@ -2,10 +2,13 @@ import asyncpg
 import logging
 import asyncio
 
+
 class AsyncDatabase:
     """Asynchronous PostgreSQL database connection handler with robust error handling."""
-    
-    def __init__(self, database: str, user: str, password: str, host: str, port: int = 5432):
+
+    def __init__(
+        self, database: str, user: str, password: str, host: str, port: int = 5432
+    ):
         self.database = database
         self.user = user
         self.password = password
@@ -25,13 +28,17 @@ class AsyncDatabase:
                     host=self.host,
                     port=self.port,
                     min_size=1,  # Minimum number of connections
-                    max_size=10, # Maximum number of connections
-                    timeout=10   # Connection timeout in seconds
+                    max_size=10,  # Maximum number of connections
+                    timeout=10,  # Connection timeout in seconds
                 )
-                logging.info(f"✅ Connected to database {self.database} on attempt {attempt}")
+                logging.info(
+                    f"✅ Connected to database {self.database} on attempt {attempt}"
+                )
                 return
             except asyncpg.PostgresError as e:
-                logging.error(f"❌ Database connection failed (attempt {attempt}/{self.retry_attempts}): {e}")
+                logging.error(
+                    f"❌ Database connection failed (attempt {attempt}/{self.retry_attempts}): {e}"
+                )
                 if attempt == self.retry_attempts:
                     raise
                 await asyncio.sleep(2)  # Wait before retrying
