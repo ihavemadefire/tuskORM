@@ -6,7 +6,7 @@ TEST_DB_PARAMS = {
     "user": "tuskorm",
     "password": "tuskorm",
     "host": "localhost",
-    "port": 5432
+    "port": 5432,
 }
 db = AsyncDatabase(**TEST_DB_PARAMS)
 
