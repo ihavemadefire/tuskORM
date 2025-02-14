@@ -47,7 +47,7 @@ async def test_generate_models_all_tables(db_pool):
     subprocess.run(["python", str(TUSK_SCRIPT), "generate_models"], check=True)
 
     # Check if the model file exists
-    model_path = Path("models/test_users.py")
+    model_path = Path("models/public/test_users.py")
     assert model_path.exists(), "Model file for test_users was not created."
 
     # Read the generated model
@@ -85,7 +85,7 @@ async def test_generate_models_specific_table(db_pool):
     subprocess.run(["python", str(TUSK_SCRIPT), "generate_models", "test_orders"], check=True)
 
     # Check if only the `test_orders.py` model is created
-    model_path = Path("models/test_orders.py")
+    model_path = Path("models/public/test_orders.py")
     assert model_path.exists(), "Model file for test_orders was not created."
 
     # Read the generated model
@@ -135,3 +135,53 @@ async def test_generate_models_no_db_connection(monkeypatch):
     assert result.returncode != 0, "Expected non-zero exit code for failed DB connection"
     assert "Could not connect to database" in result.stderr, "Expected database connection error not found."
 
+@pytest.mark.asyncio
+async def test_generate_models_with_schema(db_pool):
+    """Test generating models with schema-aware imports and correct directory structure."""
+    
+    async with db_pool.acquire() as conn:
+        # Ensure schema exists
+        await conn.execute("DROP SCHEMA IF EXISTS analytics CASCADE;")
+        await conn.execute("DROP SCHEMA IF EXISTS public CASCADE;")
+        await conn.execute("CREATE SCHEMA analytics;")
+        await conn.execute("CREATE SCHEMA public;")
+        
+        # Create tables in different schemas
+        await conn.execute(
+            """
+            CREATE TABLE analytics.reports (
+                id SERIAL PRIMARY KEY,
+                report_name TEXT NOT NULL
+            );
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE public.users (
+                id SERIAL PRIMARY KEY,
+                username TEXT NOT NULL
+            );
+            """
+        )
+
+    # Run the command to generate models
+    subprocess.run(["python", str(TUSK_SCRIPT), "generate_models"], check=True)
+
+    # Check if the schema subdirectories exist
+    analytics_model_path = Path("models/analytics/reports.py")
+    public_model_path = Path("models/public/users.py")
+
+    assert analytics_model_path.exists(), "Model file for analytics.reports was not created."
+    assert public_model_path.exists(), "Model file for public.users was not created."
+
+    # Read the generated analytics model
+    with analytics_model_path.open("r") as f:
+        analytics_model_content = f.read()
+
+
+
+    # Cleanup
+    os.remove(analytics_model_path)
+    os.remove(public_model_path)
+    os.rmdir("models/analytics")
+    os.rmdir("models/public")

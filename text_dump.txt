@@ -1,0 +1,111 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.5, pytest-8.3.4, pluggy-1.5.0
+rootdir: /Users/Jacob_Ide/tuskORM
+configfile: pyproject.toml
+plugins: asyncio-0.23.8
+asyncio: mode=Mode.AUTO
+collected 42 items
+
+tests/test_base_model.py .............                                   [ 30%]
+tests/test_db.py ....                                                    [ 40%]
+tests/test_migrations.py ....................                            [ 88%]
+tests/test_tusk.py FF..F                                                 [100%]
+
+=================================== FAILURES ===================================
+_______________________ test_generate_models_all_tables ________________________
+
+db_pool = <asyncpg.pool.Pool object at 0x10f9a6c40>
+
+    @pytest.mark.asyncio
+    async def test_generate_models_all_tables(db_pool):
+        """Test generating models for all tables in the database."""
+        async with db_pool.acquire() as conn:
+            await conn.execute("DROP TABLE IF EXISTS test_users;")
+            await conn.execute(
+                """
+                CREATE TABLE test_users (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    age INTEGER DEFAULT 30,
+                    is_active BOOLEAN DEFAULT TRUE
+                );
+                """
+            )
+    
+        # Run the command
+        subprocess.run(["python", str(TUSK_SCRIPT), "generate_models"], check=True)
+    
+        # Check if the model file exists
+        model_path = Path("models/test_users.py")
+>       assert model_path.exists(), "Model file for test_users was not created."
+E       AssertionError: Model file for test_users was not created.
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('models/test_users.py').exists
+
+tests/test_tusk.py:51: AssertionError
+----------------------------- Captured stdout call -----------------------------
+✅ Generated model: models/public/test_users.py
+✅ Generated model: models/public/test_orders.py
+_____________________ test_generate_models_specific_table ______________________
+
+db_pool = <asyncpg.pool.Pool object at 0x10fa80300>
+
+    @pytest.mark.asyncio
+    async def test_generate_models_specific_table(db_pool):
+        """Test generating models for a specific table."""
+        async with db_pool.acquire() as conn:
+            await conn.execute("DROP TABLE IF EXISTS test_orders;")
+            await conn.execute(
+                """
+                CREATE TABLE test_orders (
+                    id SERIAL PRIMARY KEY,
+                    amount FLOAT NOT NULL,
+                    status TEXT DEFAULT 'pending'
+                );
+                """
+            )
+    
+        # Run the command for only the `test_orders` table
+        subprocess.run(["python", str(TUSK_SCRIPT), "generate_models", "test_orders"], check=True)
+    
+        # Check if only the `test_orders.py` model is created
+        model_path = Path("models/test_orders.py")
+>       assert model_path.exists(), "Model file for test_orders was not created."
+E       AssertionError: Model file for test_orders was not created.
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('models/test_orders.py').exists
+
+tests/test_tusk.py:89: AssertionError
+----------------------------- Captured stdout call -----------------------------
+✅ Generated model: models/public/test_orders.py
+_______________________ test_generate_models_with_schema _______________________
+
+db_pool = <asyncpg.pool.Pool object at 0x10fa805c0>
+
+    @pytest.mark.asyncio
+    async def test_generate_models_with_schema(db_pool):
+        """Test generating models with schema-aware imports and correct directory structure."""
+    
+        async with db_pool.acquire() as conn:
+            # Ensure schema exists
+            await conn.execute("DROP SCHEMA IF EXISTS analytics CASCADE;")
+            await conn.execute("CREATE SCHEMA analytics;")
+>           await conn.execute("CREATE SCHEMA public;")
+
+tests/test_tusk.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../Library/Caches/pypoetry/virtualenvs/tuskorm-WXjhj5eC-py3.11/lib/python3.11/site-packages/asyncpg/connection.py:350: in execute
+    result = await self._protocol.query(query, timeout)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   asyncpg.exceptions.DuplicateSchemaError: schema "public" already exists
+
+asyncpg/protocol/protocol.pyx:374: DuplicateSchemaError
+=========================== short test summary info ============================
+FAILED tests/test_tusk.py::test_generate_models_all_tables - AssertionError: ...
+FAILED tests/test_tusk.py::test_generate_models_specific_table - AssertionErr...
+FAILED tests/test_tusk.py::test_generate_models_with_schema - asyncpg.excepti...
+======================== 3 failed, 39 passed in 12.05s =========================

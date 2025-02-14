@@ -47,54 +47,56 @@ from pydantic import Field
 import datetime
 """
 
-async def fetch_table_metadata(conn, table_names: List[str] = None) -> Dict[str, Dict[str, str]]:
-    """Fetch specified tables and their column metadata. If no tables are specified, fetch all."""
+async def fetch_table_metadata(conn, table_names: List[str] = None) -> Dict[str, Dict[str, Dict[str, str]]]:
+    """Fetch table metadata, grouped by schema."""
     query = """
-        SELECT table_name, column_name, data_type, is_nullable, column_default
+        SELECT table_schema, table_name, column_name, data_type, is_nullable, column_default
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
     """
-    
+
     if table_names:
         placeholders = ", ".join(f"'{t}'" for t in table_names)
         query += f" AND table_name IN ({placeholders})"
 
     rows = await conn.fetch(query)
-    tables = {}
+    schemas = {}
 
     for row in rows:
+        schema = row["table_schema"]
         table = row["table_name"]
         column = row["column_name"]
         data_type = row["data_type"]
         nullable = row["is_nullable"] == "YES"
         default = row["column_default"]
+
         if default:
             if default.startswith("'") and default.endswith("'"):
-                default = default.strip("'")  # Remove extra quotes from strings
-            elif "::" in default:  
-                default = default.split("::")[0]  # Remove PostgreSQL casting (e.g., `'pending'::text`)
+                default = default.strip("'")
+            elif "::" in default:
+                default = default.split("::")[0]
             elif default.lower() in ["true", "false"]:
-                default = default.capitalize()  # Convert `true` to `True`, `false` to `False`
+                default = default.capitalize()
 
-        # Convert PostgreSQL type to Python type
         py_type = PG_TO_PY_TYPE.get(data_type, "Any")
 
-        # Format field definition
         if default and "nextval" in str(default):
-            field_def = f"{column}: {py_type} = Field(default_factory=lambda: None)"  # Auto-incrementing field
+            field_def = f"{column}: {py_type} = Field(default_factory=lambda: None)"
         else:
             field_def = f"{column}: {py_type}"
             if default:
-                field_def += f" = {default}"  # Only set default if it exists
+                field_def += f" = {default}"
             elif not nullable:
-                field_def += " = Field(...)"  # Ensure required fields get Field(...) annotation
+                field_def += " = Field(...)"
 
+        if schema not in schemas:
+            schemas[schema] = {}
+        if table not in schemas[schema]:
+            schemas[schema][table] = []
+        schemas[schema][table].append(field_def)
 
-        if table not in tables:
-            tables[table] = []
-        tables[table].append(field_def)
+    return schemas
 
-    return tables
 
 def singularize_table_name(table_name: str) -> str:
     """Convert table name to singular form (basic heuristic)."""
@@ -113,21 +115,25 @@ async def generate_models(db_config: dict, table_names: List[str] = None):
     except Exception as e:
         print(f"❌ Could not connect to database: {e}", file=sys.stderr)
         sys.exit(1)
-    tables = await fetch_table_metadata(conn, table_names)
+
+    schemas = await fetch_table_metadata(conn, table_names)
     await conn.close()
 
-    if not tables:
+    if not schemas:
         print("❌ No matching tables found.", file=sys.stderr)
-
         return
 
-    for table, fields in tables.items():
-        model_name = "".join(word.capitalize() for word in singularize_table_name(table).split("_"))  
-        model_filename = os.path.join(MODELS_DIR, f"{table}.py")
+    for schema, tables in schemas.items():
+        schema_dir = os.path.join(MODELS_DIR, schema)
+        os.makedirs(schema_dir, exist_ok=True)  # Create schema subdirectory
 
-        formatted_fields = "\n    ".join(fields)
+        for table, fields in tables.items():
+            model_name = "".join(word.capitalize() for word in singularize_table_name(table).split("_"))
+            model_filename = os.path.join(schema_dir, f"{table}.py")
 
-        model_content = f"""{ASYNC_SETUP}
+            formatted_fields = "\n    ".join(fields)
+
+            model_content = f"""{ASYNC_SETUP}
 
 class {model_name}(BaseModel):
     {formatted_fields}
@@ -136,13 +142,11 @@ class {model_name}(BaseModel):
         table_name = "{table}"
 """
 
+            with open(model_filename, "w") as model_file:
+                model_file.write(model_content)
 
-        # Write the model to a file
-        with open(model_filename, "w") as model_file:
-            model_file.write(model_content)
-
-        print(f"✅ Generated model: {model_filename}")
-
+            print(f"✅ Generated model: {model_filename}")
+            
 async def run_command(command, table_names: List[str] = None):
     """Handle command execution."""
     if command == "generate_models":
