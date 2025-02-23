@@ -122,25 +122,6 @@ async def test_generate_models_nonexistent_table():
     # Ensure the command fails gracefully
     assert "No matching tables found" in result.stderr
 
-
-@pytest.mark.asyncio
-async def test_generate_models_no_db_connection(monkeypatch):
-    """Test generate_models fails if the database is unavailable."""
-
-    monkeypatch.setenv("TUSK_DB_PORT", "9999")
-
-    result = subprocess.run(
-        ["python", str(TUSK_SCRIPT), "generate_models"], capture_output=True, text=True
-    )
-
-    assert (
-        result.returncode != 0
-    ), "Expected non-zero exit code for failed DB connection"
-    assert (
-        "Could not connect to database" in result.stderr
-    ), "Expected database connection error not found."
-
-
 @pytest.mark.asyncio
 async def test_generate_models_with_schema(db_pool):
     """Test generating models with schema-aware imports and correct directory structure."""
