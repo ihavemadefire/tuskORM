@@ -3,6 +3,7 @@ import pytest
 import subprocess
 import asyncpg
 from pathlib import Path
+import shutil
 
 # Test database connection details
 TEST_DB_PARAMS = {
@@ -12,7 +13,6 @@ TEST_DB_PARAMS = {
     "host": "localhost",
     "port": 5432,
 }
-
 
 
 # Path to the tusk.py script
@@ -82,7 +82,9 @@ async def test_generate_models_specific_table(db_pool):
         )
 
     # Run the command for only the `test_orders` table
-    subprocess.run(["python", str(TUSK_SCRIPT), "generate_models", "test_orders"], check=True)
+    subprocess.run(
+        ["python", str(TUSK_SCRIPT), "generate_models", "test_orders"], check=True
+    )
 
     # Check if only the `test_orders.py` model is created
     model_path = Path("models/public/test_orders.py")
@@ -100,7 +102,9 @@ async def test_generate_models_specific_table(db_pool):
     assert 'table_name = "test_orders"' in model_content
 
     # Ensure no unwanted models were created
-    assert not Path("models/test_users.py").exists(), "test_users model should not be created."
+    assert not Path(
+        "models/test_users.py"
+    ).exists(), "test_users model should not be created."
 
     # Cleanup
     os.remove(model_path)
@@ -112,40 +116,42 @@ async def test_generate_models_nonexistent_table():
     result = subprocess.run(
         ["python", str(TUSK_SCRIPT), "generate_models", "fake_table"],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     # Ensure the command fails gracefully
     assert "No matching tables found" in result.stderr
 
 
-
 @pytest.mark.asyncio
 async def test_generate_models_no_db_connection(monkeypatch):
     """Test generate_models fails if the database is unavailable."""
-    
+
     monkeypatch.setenv("TUSK_DB_PORT", "9999")
 
     result = subprocess.run(
-        ["python", str(TUSK_SCRIPT), "generate_models"],
-        capture_output=True,
-        text=True
+        ["python", str(TUSK_SCRIPT), "generate_models"], capture_output=True, text=True
     )
 
-    assert result.returncode != 0, "Expected non-zero exit code for failed DB connection"
-    assert "Could not connect to database" in result.stderr, "Expected database connection error not found."
+    assert (
+        result.returncode != 0
+    ), "Expected non-zero exit code for failed DB connection"
+    assert (
+        "Could not connect to database" in result.stderr
+    ), "Expected database connection error not found."
+
 
 @pytest.mark.asyncio
 async def test_generate_models_with_schema(db_pool):
     """Test generating models with schema-aware imports and correct directory structure."""
-    
+
     async with db_pool.acquire() as conn:
         # Ensure schema exists
         await conn.execute("DROP SCHEMA IF EXISTS analytics CASCADE;")
         await conn.execute("DROP SCHEMA IF EXISTS public CASCADE;")
         await conn.execute("CREATE SCHEMA analytics;")
         await conn.execute("CREATE SCHEMA public;")
-        
+
         # Create tables in different schemas
         await conn.execute(
             """
@@ -171,17 +177,17 @@ async def test_generate_models_with_schema(db_pool):
     analytics_model_path = Path("models/analytics/reports.py")
     public_model_path = Path("models/public/users.py")
 
-    assert analytics_model_path.exists(), "Model file for analytics.reports was not created."
+    assert (
+        analytics_model_path.exists()
+    ), "Model file for analytics.reports was not created."
     assert public_model_path.exists(), "Model file for public.users was not created."
 
     # Read the generated analytics model
     with analytics_model_path.open("r") as f:
         analytics_model_content = f.read()
 
-
-
     # Cleanup
     os.remove(analytics_model_path)
     os.remove(public_model_path)
-    os.rmdir("models/analytics")
-    os.rmdir("models/public")
+    shutil.rmtree("models/analytics")
+    shutil.rmtree("models/public")
