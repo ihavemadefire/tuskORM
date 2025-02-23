@@ -4,6 +4,7 @@ import asyncio
 import asyncpg
 import argparse
 from typing import Dict, List
+import json
 
 # PostgreSQL connection details (Adjust as needed)
 DB_CONFIG = {
@@ -47,7 +48,10 @@ from pydantic import Field
 import datetime
 """
 
-async def fetch_table_metadata(conn, table_names: List[str] = None) -> Dict[str, Dict[str, Dict[str, str]]]:
+
+async def fetch_table_metadata(
+    conn, table_names: List[str] = None
+) -> Dict[str, Dict[str, Dict[str, str]]]:
     """Fetch table metadata, grouped by schema."""
     query = """
         SELECT table_schema, table_name, column_name, data_type, is_nullable, column_default
@@ -106,10 +110,11 @@ def singularize_table_name(table_name: str) -> str:
         return table_name[:-1]
     return table_name  # Assume already singular
 
+
 async def generate_models(db_config: dict, table_names: List[str] = None):
     """Generate TuskORM models from the database schema."""
     os.makedirs(MODELS_DIR, exist_ok=True)
-    
+
     try:
         conn = await asyncpg.connect(**db_config)
     except Exception as e:
@@ -128,7 +133,9 @@ async def generate_models(db_config: dict, table_names: List[str] = None):
         os.makedirs(schema_dir, exist_ok=True)  # Create schema subdirectory
 
         for table, fields in tables.items():
-            model_name = "".join(word.capitalize() for word in singularize_table_name(table).split("_"))
+            model_name = "".join(
+                word.capitalize() for word in singularize_table_name(table).split("_")
+            )
             model_filename = os.path.join(schema_dir, f"{table}.py")
 
             formatted_fields = "\n    ".join(fields)
@@ -146,25 +153,95 @@ class {model_name}(BaseModel):
                 model_file.write(model_content)
 
             print(f"✅ Generated model: {model_filename}")
-            
+
+
+def configure_db():
+    """
+    Prompts the user for database connection details and stores them in a .DBConfig file.
+    """
+    print("=== Database Configuration ===")
+
+    # Prompt for required connection fields
+    host = input("Enter database host (e.g., localhost): ").strip()
+    port = input("Enter database port (e.g., 5432): ").strip()
+    username = input("Enter username: ").strip()
+    password = input("Enter password: ").strip()
+    database = input("Enter database name: ").strip()
+
+    # Construct configuration dictionary
+    config = {
+        "host": host,
+        "port": port,
+        "user": username,
+        "password": password,
+        "database": database,
+    }
+
+    # Optional: confirm before saving
+    print("\nConfiguration:")
+    for key, value in config.items():
+        print(f"{key}: {value}")
+    confirm = input("\nSave this configuration? (y/n): ").lower()
+    if confirm != "y":
+        print("Configuration not saved.")
+        return
+
+    # Write config to .DBConfig file in JSON format
+    try:
+        with open(".DBConfig", "w") as config_file:
+            json.dump(config, config_file, indent=4)
+        print("Configuration saved successfully to .DBConfig")
+    except Exception as e:
+        print(f"Failed to write configuration file: {e}")
+
+
+async def test_db():
+    """
+    Tests the database connection using the configuration stored in .DBConfig.
+    """
+    try:
+        with open(".DBConfig", "r") as config_file:
+            config = json.load(config_file)
+    except FileNotFoundError:
+        print("❌ Configuration file not found.")
+        return
+    except Exception as e:
+        print(f"❌ Error reading configuration file: {e}")
+        return
+
+    try:
+        conn = await asyncpg.connect(**config)
+        print("✅ Database connection successful.")
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+
+
 async def run_command(command, table_names: List[str] = None):
     """Handle command execution."""
     if command == "generate_models":
         await generate_models(DB_CONFIG, table_names)
+    elif command == "configure_db":
+        configure_db()
+    elif command == "test_db":
+        await test_db()
     else:
         print(f"❌ Unknown command: {command}")
+
 
 def main():
     """Main function to handle command-line arguments."""
     parser = argparse.ArgumentParser(description="TuskORM CLI")
     parser.add_argument("command", help="The command to run (e.g., generate_models)")
-    parser.add_argument("tables", nargs="*", help="Optional list of table names to generate models for")
+    parser.add_argument(
+        "tables", nargs="*", help="Optional list of table names to generate models for"
+    )
     args = parser.parse_args()
 
     try:
         asyncio.run(run_command(args.command, args.tables))
     except Exception as e:
         print(f"❌ Error: {e}")
+
 
 if __name__ == "__main__":
     main()
